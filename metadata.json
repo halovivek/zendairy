@@ -1,0 +1,10 @@
+
+{
+  "name": "ZenDiary - Your Private Sanctuary",
+  "description": "A high-end, end-to-end encrypted personal diary application featuring text, image, and video memories with AI-powered insights and Google Drive sync simulation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
