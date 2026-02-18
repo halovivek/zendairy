@@ -25,6 +25,7 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
   // Camera & Recording States
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -237,6 +238,12 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
 
   const handleGetLocation = () => {
     if (isFetchingLocation) return;
+    
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+
     setIsFetchingLocation(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -248,10 +255,14 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
       },
       (err) => {
         console.error("Location error", err);
-        alert("Could not retrieve location. Please check permissions.");
+        let msg = "Could not retrieve location.";
+        if (err.code === 1) msg = "Location permission denied.";
+        else if (err.code === 2) msg = "Location unavailable.";
+        else if (err.code === 3) msg = "Location request timed out.";
+        alert(msg);
         setIsFetchingLocation(false);
       },
-      { enableHighAccuracy: true, timeout: 5000 }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   };
 
@@ -271,6 +282,7 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-[#191121] relative select-none">
+      {/* Recording & Camera Overlays */}
       {(isCameraOpen || recordingMode === 'audio') && (
         <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center animate-in fade-in duration-300">
           {isCameraOpen && (
@@ -334,6 +346,96 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
         </div>
       )}
 
+      {/* Preview Modal Overlay */}
+      {isPreviewOpen && (
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end animate-in fade-in duration-300">
+          <div className="w-full h-[90vh] bg-white dark:bg-[#191121] rounded-t-[40px] shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-500">
+            <div className="h-1.5 w-12 bg-gray-200 dark:bg-white/10 rounded-full mx-auto mt-4 mb-2"></div>
+            
+            <header className="px-6 py-4 flex items-center justify-between border-b border-primary/5">
+              <h3 className="text-xs font-black uppercase tracking-widest text-primary">Entry Preview</h3>
+              <button onClick={() => setIsPreviewOpen(false)} className="size-10 flex items-center justify-center rounded-full bg-primary/5 text-primary">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </header>
+
+            <div className="flex-1 overflow-y-auto px-8 py-10 no-scrollbar">
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-primary/40 font-black text-[10px] uppercase tracking-widest">
+                    {new Date(entry?.date || Date.now()).toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}
+                  </span>
+                  {mood !== 'none' && (
+                    <span className="px-2 py-0.5 bg-primary/10 rounded text-xs flex items-center gap-1.5">
+                      {MOOD_EMOJIS[mood]} <span className="text-[10px] font-bold uppercase tracking-widest">{mood}</span>
+                    </span>
+                  )}
+                </div>
+                <h1 className="text-3xl font-black tracking-tight leading-tight">{title || 'Untitled Memory'}</h1>
+              </div>
+
+              {location && (
+                <div className="flex items-center gap-2 mb-8 text-primary/60">
+                  <span className="material-symbols-outlined text-lg filled">location_on</span>
+                  <span className="text-xs font-bold">{location.lat.toFixed(5)}, {location.lng.toFixed(5)}</span>
+                </div>
+              )}
+
+              <div className="prose dark:prose-invert max-w-none mb-12">
+                <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                  {content || "No content written yet."}
+                </p>
+              </div>
+
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-12">
+                  {tags.map(t => (
+                    <span key={t} className="px-3 py-1 bg-primary/5 dark:bg-white/5 border border-primary/10 text-primary text-[10px] font-black rounded-full uppercase tracking-widest">#{t}</span>
+                  ))}
+                </div>
+              )}
+
+              {media.length > 0 && (
+                <div className="space-y-6">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400">Captured Moments</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {media.map(m => (
+                      <div key={m.id} className="aspect-square rounded-[32px] overflow-hidden bg-primary/5 relative">
+                        {m.type === 'image' && <img src={m.url} className="w-full h-full object-cover" />}
+                        {m.type === 'video' && (
+                          <div className="w-full h-full relative">
+                            <video src={m.url} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                               <span className="material-symbols-outlined text-white text-4xl">play_circle</span>
+                            </div>
+                          </div>
+                        )}
+                        {m.type === 'audio' && (
+                          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-primary">
+                             <span className="material-symbols-outlined text-4xl filled">mic</span>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Voice Note</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <footer className="p-6 border-t border-primary/5 bg-gray-50/50 dark:bg-white/5">
+               <button 
+                onClick={handleSave}
+                className="w-full py-5 bg-primary text-white rounded-3xl font-black uppercase text-xs tracking-[0.2em] shadow-2xl shadow-primary/40 active:scale-95 transition-all flex items-center justify-center gap-3"
+               >
+                 Confirm and Save Memory
+                 <span className="material-symbols-outlined text-xl">check_circle</span>
+               </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
       <header className="px-4 py-3 flex items-center justify-between border-b border-primary/10 bg-white/80 dark:bg-[#191121]/80 backdrop-blur-md sticky top-0 z-50">
         <button onClick={onBack} className="size-10 flex items-center justify-center rounded-full active:bg-primary/10 text-primary transition-colors">
           <span className="material-symbols-outlined">arrow_back</span>
@@ -350,8 +452,8 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
         </button>
       </header>
 
-      <main className="flex-1 flex flex-col px-6 py-6 overflow-y-auto no-scrollbar">
-        <div className="flex items-center justify-between mb-4">
+      <main className="flex-1 flex flex-col px-6 py-6 overflow-y-auto no-scrollbar relative">
+        <div className="flex items-center justify-between mb-2">
           <input 
             type="text" value={title} onChange={(e) => setTitle(e.target.value)}
             placeholder="Today's Title..."
@@ -360,10 +462,10 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
           <div className="flex items-center gap-1">
             <button 
               onClick={handleGetLocation}
-              className={`size-10 rounded-full flex items-center justify-center transition-all ${isFetchingLocation ? 'animate-bounce text-primary' : location ? 'text-primary' : 'text-primary/40 hover:text-primary active:scale-90'}`}
-              title="Add Location"
+              className={`size-10 rounded-full flex items-center justify-center transition-all ${isFetchingLocation ? 'animate-pulse bg-primary/20 text-primary' : location ? 'text-primary bg-primary/10' : 'text-primary/40 hover:text-primary hover:bg-primary/5 active:scale-90'}`}
+              title="Add Current Location"
             >
-              <span className={`material-symbols-outlined ${location ? 'filled' : ''}`}>location_on</span>
+              <span className={`material-symbols-outlined ${location || isFetchingLocation ? 'filled' : ''}`}>location_on</span>
             </button>
             <button 
               onClick={handleAIAnalysis}
@@ -376,17 +478,26 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
           </div>
         </div>
 
-        {location && (
-          <div className="flex items-center gap-2 mb-4 bg-primary/5 rounded-full pl-3 pr-1 py-1 w-fit border border-primary/10 animate-in fade-in zoom-in-95">
-            <span className="text-[10px] font-bold text-primary flex items-center gap-1 uppercase tracking-wider">
-              <span className="material-symbols-outlined text-[12px]">explore</span>
-              {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+        {/* Location Display */}
+        {location || isFetchingLocation ? (
+          <div className="flex items-center gap-2 mb-6 bg-primary/5 dark:bg-primary/10 rounded-full pl-3 pr-1 py-1 w-fit border border-primary/10 animate-in fade-in slide-in-from-left-2">
+            <span className="text-[10px] font-black text-primary flex items-center gap-1 uppercase tracking-[0.15em]">
+              <span className={`material-symbols-outlined text-[14px] ${isFetchingLocation ? 'animate-spin' : ''}`}>
+                {isFetchingLocation ? 'sync' : 'explore'}
+              </span>
+              {isFetchingLocation ? 'Detecting GPS...' : `${location?.lat.toFixed(5)}, ${location?.lng.toFixed(5)}`}
             </span>
-            <button onClick={() => setLocation(undefined)} className="size-5 bg-primary/10 rounded-full flex items-center justify-center hover:bg-red-500/20 hover:text-red-500 transition-colors">
-              <span className="material-symbols-outlined text-[10px]">close</span>
-            </button>
+            {!isFetchingLocation && (
+              <button 
+                onClick={() => setLocation(undefined)} 
+                className="size-5 bg-primary/20 rounded-full flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors"
+                title="Remove Location"
+              >
+                <span className="material-symbols-outlined text-[12px]">close</span>
+              </button>
+            )}
           </div>
-        )}
+        ) : null}
 
         <textarea 
           value={content} onChange={(e) => setContent(e.target.value)}
@@ -446,6 +557,15 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
             </div>
           </div>
         )}
+
+        {/* Floating Preview Button */}
+        <button 
+          onClick={() => setIsPreviewOpen(true)}
+          className="fixed bottom-24 right-6 size-14 bg-primary/80 backdrop-blur-xl text-white rounded-full shadow-2xl shadow-primary/40 flex items-center justify-center active:scale-90 transition-all border border-white/20 z-40"
+          title="Preview Entry"
+        >
+          <span className="material-symbols-outlined text-3xl">visibility</span>
+        </button>
       </main>
 
       <footer className="px-4 py-4 border-t border-primary/10 bg-white/80 dark:bg-[#191121]/80 backdrop-blur-lg safe-area-bottom">
@@ -493,7 +613,6 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
                   const isVideo = f.type.startsWith('video/');
 
                   if (isImage && (currentImageCount + media.filter(m => m.type === 'image').length >= MAX_IMAGES)) {
-                    // This logic is a bit simple for bulk uploads but handles the basic case
                     return;
                   }
 

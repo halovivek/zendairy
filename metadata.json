@@ -18,6 +18,14 @@
     {
       "name": "android.permission.RECORD_AUDIO",
       "reason": "Required for voice notes and video audio"
+    },
+    {
+      "name": "android.permission.ACCESS_FINE_LOCATION",
+      "reason": "Required for tagging diary entries with your precise current location"
+    },
+    {
+      "name": "android.permission.ACCESS_COARSE_LOCATION",
+      "reason": "Required for approximate location tagging"
     }
   ]
 }
