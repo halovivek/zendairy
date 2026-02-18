@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User, Reminder } from '../types';
-import { simulateDriveSync, SyncStatus } from '../services/driveService';
+import { User, Reminder } from '../types.ts';
+import { simulateDriveSync, SyncStatus } from '../services/driveService.ts';
 
 interface SettingsProps {
   user: User;
@@ -28,7 +28,22 @@ const Settings: React.FC<SettingsProps> = ({
   const [newReminderTitle, setNewReminderTitle] = useState('Time to write');
 
   const handleSync = async () => {
-    await simulateDriveSync(setSyncStatus);
+    // Randomly simulate a conflict for demonstration purposes (1 in 3 chance)
+    const simulateConflict = Math.random() < 0.33;
+    await simulateDriveSync(setSyncStatus, simulateConflict);
+  };
+
+  const resolveConflict = async (resolution: 'local' | 'cloud') => {
+    setSyncStatus(prev => ({
+      ...prev,
+      isSyncing: true,
+      hasConflict: false,
+      status: `Applying ${resolution} version...`
+    }));
+    
+    // Resume sync simulation after resolution
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await simulateDriveSync(setSyncStatus, false);
   };
 
   const handleAddReminder = () => {
@@ -41,6 +56,12 @@ const Settings: React.FC<SettingsProps> = ({
       active: true
     });
     setShowAddReminder(false);
+  };
+
+  const toggleBiometrics = () => {
+    const updatedUser = { ...user, biometricEnabled: !user.biometricEnabled };
+    onUpdateUser(updatedUser);
+    localStorage.setItem('zendiary_user', JSON.stringify(updatedUser));
   };
 
   return (
@@ -57,23 +78,52 @@ const Settings: React.FC<SettingsProps> = ({
         <button className="text-primary"><span className="material-symbols-outlined">edit</span></button>
       </div>
 
+      {/* Security Section */}
+      <div className="space-y-4 mb-10">
+        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 px-2">Security & Privacy</h4>
+        <div className="bg-primary/5 dark:bg-primary/10 rounded-[32px] p-6 border border-primary/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <div className="size-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+                <span className="material-symbols-outlined">faceid</span>
+              </div>
+              <div>
+                <p className="text-sm font-black">Biometric Lock</p>
+                <p className="text-[10px] text-gray-400 font-bold">FaceID or Fingerprint</p>
+              </div>
+            </div>
+            <button 
+              onClick={toggleBiometrics}
+              className={`w-12 h-6 rounded-full relative flex items-center px-1 transition-colors ${user.biometricEnabled ? 'bg-primary' : 'bg-gray-300'}`}
+            >
+              <div className={`size-4 bg-white rounded-full transition-transform shadow-md ${user.biometricEnabled ? 'translate-x-6' : ''}`} />
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-400 italic mt-2 px-1">
+            Require biometric authentication when opening the app.
+          </p>
+        </div>
+      </div>
+
       {/* Cloud Backup Section */}
       <div className="space-y-4 mb-10">
         <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 px-2">Secure Cloud</h4>
-        <div className="bg-primary/5 dark:bg-primary/10 rounded-[32px] overflow-hidden border border-primary/10 p-6">
+        <div className={`bg-primary/5 dark:bg-primary/10 rounded-[32px] overflow-hidden border transition-all duration-500 p-6 ${syncStatus.hasConflict ? 'border-red-500/50 bg-red-500/5' : 'border-primary/10'}`}>
           <div className="flex items-center gap-4 mb-6">
-            <div className={`size-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary ${syncStatus.isSyncing ? 'animate-spin' : ''}`}>
-              <span className="material-symbols-outlined text-2xl">cloud_sync</span>
+            <div className={`size-12 rounded-2xl flex items-center justify-center text-primary ${syncStatus.isSyncing ? 'animate-spin' : ''} ${syncStatus.hasConflict ? 'bg-red-500/10 text-red-500' : 'bg-primary/10'}`}>
+              <span className="material-symbols-outlined text-2xl">
+                {syncStatus.hasConflict ? 'warning' : 'cloud_sync'}
+              </span>
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-sm font-black">Google Drive Backup</p>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                {syncStatus.isSyncing ? syncStatus.status : `Last updated: ${syncStatus.lastSync || 'Never'}`}
+              <p className={`text-[10px] font-bold uppercase tracking-wider ${syncStatus.hasConflict ? 'text-red-500' : 'text-gray-400'}`}>
+                {syncStatus.status}
               </p>
             </div>
           </div>
           
-          {syncStatus.isSyncing && (
+          {(syncStatus.isSyncing || syncStatus.progress > 0) && !syncStatus.hasConflict && (
             <div className="w-full bg-primary/10 h-2 rounded-full mb-6 overflow-hidden">
               <div 
                 className="h-full bg-primary transition-all duration-700 ease-out" 
@@ -82,13 +132,50 @@ const Settings: React.FC<SettingsProps> = ({
             </div>
           )}
 
+          {syncStatus.hasConflict && syncStatus.conflictDetails && (
+            <div className="mb-6 p-4 bg-white/50 dark:bg-white/5 rounded-2xl border border-red-500/20 animate-in fade-in slide-in-from-top-4">
+              <p className="text-[11px] font-bold text-red-600 dark:text-red-400 mb-3 flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">info</span>
+                Conflict in: {syncStatus.conflictDetails.fileName}
+              </p>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <button 
+                  onClick={() => resolveConflict('local')}
+                  className="p-3 bg-white dark:bg-white/10 rounded-xl border border-gray-200 dark:border-white/10 text-left hover:border-primary transition-all"
+                >
+                  <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Local Version</p>
+                  <p className="text-[10px] font-bold leading-tight line-clamp-1">{syncStatus.conflictDetails.localDate}</p>
+                  <div className="mt-2 text-[9px] font-black text-primary flex items-center gap-1">
+                    KEEP LOCAL <span className="material-symbols-outlined text-xs">chevron_right</span>
+                  </div>
+                </button>
+                <button 
+                  onClick={() => resolveConflict('cloud')}
+                  className="p-3 bg-white dark:bg-white/10 rounded-xl border border-gray-200 dark:border-white/10 text-left hover:border-primary transition-all"
+                >
+                  <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Cloud Version</p>
+                  <p className="text-[10px] font-bold leading-tight line-clamp-1">{syncStatus.conflictDetails.cloudDate}</p>
+                  <div className="mt-2 text-[9px] font-black text-primary flex items-center gap-1">
+                    KEEP CLOUD <span className="material-symbols-outlined text-xs">chevron_right</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
           <button 
             onClick={handleSync}
-            disabled={syncStatus.isSyncing}
-            className="w-full py-4 bg-primary text-white rounded-2xl text-xs font-black uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all shadow-lg shadow-primary/20"
+            disabled={syncStatus.isSyncing || syncStatus.hasConflict}
+            className={`w-full py-4 text-white rounded-2xl text-xs font-black uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all shadow-lg shadow-primary/20 ${syncStatus.hasConflict ? 'bg-gray-400' : 'bg-primary'}`}
           >
-            {syncStatus.isSyncing ? 'Synchronizing...' : 'Sync Memories Now'}
+            {syncStatus.isSyncing ? 'Synchronizing...' : syncStatus.hasConflict ? 'Action Required' : 'Sync Memories Now'}
           </button>
+          
+          {syncStatus.lastSync && !syncStatus.isSyncing && !syncStatus.hasConflict && (
+            <p className="mt-4 text-[9px] text-center text-gray-400 font-bold uppercase tracking-widest">
+              Last synced: {syncStatus.lastSync}
+            </p>
+          )}
         </div>
       </div>
 

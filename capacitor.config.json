@@ -1,8 +1,15 @@
+
 {
   "appId": "com.zendiary.personal",
   "appName": "ZenDiary",
   "webDir": "dist",
+  "bundledWebRuntime": false,
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
   }
 }

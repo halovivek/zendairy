@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppView, DiaryEntry, User, Reminder } from './types';
-import Login from './components/Login';
-import Home from './components/Home';
-import Editor from './components/Editor';
-import Stats from './components/Stats';
-import Calendar from './components/Calendar';
-import Settings from './components/Settings';
-import BottomNav from './components/BottomNav';
+import { AppView, DiaryEntry, User, Reminder } from './types.ts';
+import Login from './components/Login.tsx';
+import Home from './components/Home.tsx';
+import Editor from './components/Editor.tsx';
+import Stats from './components/Stats.tsx';
+import Calendar from './components/Calendar.tsx';
+import Settings from './components/Settings.tsx';
+import BottomNav from './components/BottomNav.tsx';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>('login');

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DiaryEntry, MediaAttachment, Mood } from '../types';
-import { analyzeEntry } from '../services/geminiService';
+import { DiaryEntry, MediaAttachment, Mood } from '../types.ts';
+import { analyzeEntry } from '../services/geminiService.ts';
 
 interface EditorProps {
   entry?: DiaryEntry;
@@ -10,6 +10,10 @@ interface EditorProps {
   onDelete: (id: string) => void;
 }
 
+const MAX_IMAGES = 50;
+const MAX_VIDEO_SIZE_MB = 250;
+const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
+
 const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
   const [content, setContent] = useState(entry?.content || '');
   const [title, setTitle] = useState(entry?.title || '');
@@ -17,8 +21,10 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
   const [tags, setTags] = useState<string[]>(entry?.tags || []);
   const [tagInput, setTagInput] = useState('');
   const [media, setMedia] = useState<MediaAttachment[]>(entry?.media || []);
+  const [location, setLocation] = useState(entry?.location);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   
   // Camera & Recording States
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -82,7 +88,6 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
       videoStreamRef.current = stream;
       setIsCameraOpen(true);
       
-      // Need a timeout to ensure the ref is available after state change renders the overlay
       setTimeout(() => {
         if (videoPreviewRef.current) {
           videoPreviewRef.current.srcObject = stream;
@@ -98,9 +103,6 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
     if (!videoStreamRef.current && type === 'video') return;
 
     try {
-      const stream = videoStreamRef.current || null;
-      
-      // If audio-only, we need to get the stream now
       const setupAudioRecorder = async () => {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         videoStreamRef.current = audioStream;
@@ -120,17 +122,23 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
 
         recorder.onstop = () => {
           const finalBlob = new Blob(audioChunksRef.current, { type: rType === 'video' ? 'video/webm' : 'audio/webm' });
+          
+          if (rType === 'video' && finalBlob.size > MAX_VIDEO_SIZE_BYTES) {
+            alert(`Video exceeds ${MAX_VIDEO_SIZE_MB}MB limit and cannot be attached.`);
+            return;
+          }
+
           const reader = new FileReader();
           reader.onload = (e) => {
             setMedia(prev => [...prev, {
               id: Math.random().toString(36).substr(2, 9),
               type: rType,
               url: e.target?.result as string,
-              duration: durationRef.current
+              duration: durationRef.current,
+              size: finalBlob.size
             }]);
           };
           reader.readAsDataURL(finalBlob);
-          // If we weren't in persistent camera mode, stop the tracks
           if (rType === 'audio') {
             mediaStream.getTracks().forEach(track => track.stop());
             videoStreamRef.current = null;
@@ -171,10 +179,7 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
       window.clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
-    // If we were in video mode, we keep the preview open until they close the viewfinder
-    if (recordingMode === 'video') {
-      // Just stop recorder, keep stream for preview
-    } else {
+    if (recordingMode !== 'video') {
       stopEverything();
     }
   };
@@ -204,7 +209,8 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
       mood,
       tags,
       media,
-      isFavorite: entry?.isFavorite || false
+      isFavorite: entry?.isFavorite || false,
+      location
     });
   };
 
@@ -229,6 +235,26 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
     }
   };
 
+  const handleGetLocation = () => {
+    if (isFetchingLocation) return;
+    setIsFetchingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        });
+        setIsFetchingLocation(false);
+      },
+      (err) => {
+        console.error("Location error", err);
+        alert("Could not retrieve location. Please check permissions.");
+        setIsFetchingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 5000 }
+    );
+  };
+
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
   const MOOD_EMOJIS: Record<string, string> = {
@@ -241,9 +267,10 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
     none: '😶'
   };
 
+  const currentImageCount = media.filter(m => m.type === 'image').length;
+
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-[#191121] relative select-none">
-      {/* Viewfinder / Recording UI Overlay */}
       {(isCameraOpen || recordingMode === 'audio') && (
         <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center animate-in fade-in duration-300">
           {isCameraOpen && (
@@ -256,44 +283,32 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
                 className="w-full h-full object-cover opacity-90 scale-x-[-1]" 
               />
               <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none" />
-              
-              {/* Top Controls */}
               <div className="absolute top-12 left-0 right-0 px-6 flex items-center justify-between z-10">
-                <button 
-                  onClick={stopEverything}
-                  className="size-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
-                >
+                <button onClick={stopEverything} className="size-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white active:scale-90 transition-transform">
                   <span className="material-symbols-outlined">close</span>
                 </button>
-                
                 {recordingMode === 'video' && (
                   <div className="bg-red-600 text-white px-4 py-1.5 rounded-full text-xs font-black flex items-center gap-2 shadow-2xl animate-pulse">
                     <span className="size-2 bg-white rounded-full"></span>
                     {formatTime(recordingDuration)}
                   </div>
                 )}
-                <div className="size-10"></div> {/* Spacer */}
+                <div className="size-10"></div>
               </div>
-
-              {/* Bottom Controls */}
               <div className="absolute bottom-16 left-0 right-0 flex flex-col items-center gap-6 z-10">
                 {recordingMode === 'none' ? (
                   <>
-                    <p className="text-white/80 text-[11px] font-black uppercase tracking-[0.2em] drop-shadow-md">Ready to record</p>
-                    <button 
-                      onClick={() => startRecording('video')}
-                      className="size-24 bg-white rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform border-[8px] border-white/20"
-                    >
+                    <p className="text-white/80 text-[11px] font-black uppercase tracking-[0.2em] drop-shadow-md text-center">
+                      Max {MAX_VIDEO_SIZE_MB}MB Video
+                    </p>
+                    <button onClick={() => startRecording('video')} className="size-24 bg-white rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform border-[8px] border-white/20">
                       <div className="size-14 bg-red-600 rounded-full shadow-inner"></div>
                     </button>
                   </>
                 ) : (
                   <>
-                    <p className="text-white/80 text-[11px] font-black uppercase tracking-[0.2em] drop-shadow-md">Recording in progress</p>
-                    <button 
-                      onClick={stopRecordingAction}
-                      className="size-24 bg-white rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform border-[8px] border-white/20"
-                    >
+                    <p className="text-white/80 text-[11px] font-black uppercase tracking-[0.2em] drop-shadow-md">Recording Video...</p>
+                    <button onClick={stopRecordingAction} className="size-24 bg-white rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform border-[8px] border-white/20">
                       <div className="size-10 bg-red-600 rounded-lg shadow-inner"></div>
                     </button>
                   </>
@@ -311,10 +326,7 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
                 <p className="text-white font-black tracking-[0.2em] uppercase text-xs mb-2">Recording Voice</p>
                 <p className="text-primary text-4xl font-mono font-bold">{formatTime(recordingDuration)}</p>
               </div>
-              <button 
-                onClick={stopRecordingAction}
-                className="mt-12 size-20 bg-white rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform border-[6px] border-white/20"
-              >
+              <button onClick={stopRecordingAction} className="mt-12 size-20 bg-white rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform border-[6px] border-white/20">
                 <div className="size-8 bg-red-600 rounded-lg"></div>
               </button>
             </div>
@@ -322,7 +334,6 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
         </div>
       )}
 
-      {/* Top Bar */}
       <header className="px-4 py-3 flex items-center justify-between border-b border-primary/10 bg-white/80 dark:bg-[#191121]/80 backdrop-blur-md sticky top-0 z-50">
         <button onClick={onBack} className="size-10 flex items-center justify-center rounded-full active:bg-primary/10 text-primary transition-colors">
           <span className="material-symbols-outlined">arrow_back</span>
@@ -339,7 +350,6 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
         </button>
       </header>
 
-      {/* Editor Body */}
       <main className="flex-1 flex flex-col px-6 py-6 overflow-y-auto no-scrollbar">
         <div className="flex items-center justify-between mb-4">
           <input 
@@ -347,15 +357,36 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
             placeholder="Today's Title..."
             className="flex-1 text-2xl font-bold bg-transparent border-none focus:ring-0 placeholder:text-gray-300 dark:placeholder:text-white/10 p-0"
           />
-          <button 
-            onClick={handleAIAnalysis}
-            disabled={isAnalyzing || !content}
-            className={`size-10 rounded-full flex items-center justify-center transition-all ${isAnalyzing ? 'animate-spin text-primary' : 'text-primary/40 hover:text-primary active:scale-90'}`}
-            title="AI Analysis"
-          >
-            <span className="material-symbols-outlined filled">auto_awesome</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={handleGetLocation}
+              className={`size-10 rounded-full flex items-center justify-center transition-all ${isFetchingLocation ? 'animate-bounce text-primary' : location ? 'text-primary' : 'text-primary/40 hover:text-primary active:scale-90'}`}
+              title="Add Location"
+            >
+              <span className={`material-symbols-outlined ${location ? 'filled' : ''}`}>location_on</span>
+            </button>
+            <button 
+              onClick={handleAIAnalysis}
+              disabled={isAnalyzing || !content}
+              className={`size-10 rounded-full flex items-center justify-center transition-all ${isAnalyzing ? 'animate-spin text-primary' : 'text-primary/40 hover:text-primary active:scale-90'}`}
+              title="AI Analysis"
+            >
+              <span className="material-symbols-outlined filled">auto_awesome</span>
+            </button>
+          </div>
         </div>
+
+        {location && (
+          <div className="flex items-center gap-2 mb-4 bg-primary/5 rounded-full pl-3 pr-1 py-1 w-fit border border-primary/10 animate-in fade-in zoom-in-95">
+            <span className="text-[10px] font-bold text-primary flex items-center gap-1 uppercase tracking-wider">
+              <span className="material-symbols-outlined text-[12px]">explore</span>
+              {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+            </span>
+            <button onClick={() => setLocation(undefined)} className="size-5 bg-primary/10 rounded-full flex items-center justify-center hover:bg-red-500/20 hover:text-red-500 transition-colors">
+              <span className="material-symbols-outlined text-[10px]">close</span>
+            </button>
+          </div>
+        )}
 
         <textarea 
           value={content} onChange={(e) => setContent(e.target.value)}
@@ -363,7 +394,6 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
           className="w-full flex-1 text-lg leading-relaxed bg-transparent border-none focus:ring-0 placeholder:text-primary/20 resize-none p-0 min-h-[200px]"
         />
         
-        {/* Tags */}
         <div className="mt-6 flex flex-wrap gap-2">
           {tags.map(tag => (
             <span key={tag} className="flex items-center gap-1.5 px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-full border border-primary/5 shadow-sm">
@@ -375,10 +405,12 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
           ))}
         </div>
 
-        {/* Media Grid */}
         {media.length > 0 && (
           <div className="mt-8 pt-6 border-t border-primary/5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-4 px-1">Memories Attached</h3>
+            <div className="flex items-center justify-between mb-4 px-1">
+               <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Memories Attached</h3>
+               <span className="text-[10px] font-bold text-primary/60">{currentImageCount}/{MAX_IMAGES} Photos</span>
+            </div>
             <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4">
               {media.map(m => (
                 <div key={m.id} className="relative flex-shrink-0 group">
@@ -416,12 +448,17 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
         )}
       </main>
 
-      {/* Toolbar */}
       <footer className="px-4 py-4 border-t border-primary/10 bg-white/80 dark:bg-[#191121]/80 backdrop-blur-lg safe-area-bottom">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => fileInputRef.current?.click()} 
+              onClick={() => {
+                if (currentImageCount >= MAX_IMAGES) {
+                  alert(`You can only attach up to ${MAX_IMAGES} images per memory.`);
+                  return;
+                }
+                fileInputRef.current?.click();
+              }} 
               className="size-12 flex items-center justify-center rounded-full bg-primary/10 text-primary active:scale-90 transition-transform shadow-sm"
               title="Add Image"
             >
@@ -448,13 +485,35 @@ const Editor: React.FC<EditorProps> = ({ entry, onSave, onBack, onDelete }) => {
             >
               <span className="material-symbols-outlined">settings_voice</span>
             </button>
-            <input type="file" ref={fileInputRef} className="hidden" multiple accept="image/*" onChange={(e) => {
+            <input type="file" ref={fileInputRef} className="hidden" multiple accept="image/*,video/*" onChange={(e) => {
               const files = e.target.files;
-              if (files) Array.from(files).forEach(f => {
-                const r = new FileReader();
-                r.onload = (ev) => setMedia(p => [...p, { id: Math.random().toString(), type: 'image', url: ev.target?.result as string }]);
-                r.readAsDataURL(f);
-              });
+              if (files) {
+                Array.from(files).forEach((f: any) => {
+                  const isImage = f.type.startsWith('image/');
+                  const isVideo = f.type.startsWith('video/');
+
+                  if (isImage && (currentImageCount + media.filter(m => m.type === 'image').length >= MAX_IMAGES)) {
+                    // This logic is a bit simple for bulk uploads but handles the basic case
+                    return;
+                  }
+
+                  if (isVideo && f.size > MAX_VIDEO_SIZE_BYTES) {
+                    alert(`Video file "${f.name}" exceeds the ${MAX_VIDEO_SIZE_MB}MB limit.`);
+                    return;
+                  }
+
+                  const r = new FileReader();
+                  r.onload = (ev) => {
+                    setMedia(p => [...p, { 
+                      id: Math.random().toString(36).substr(2, 9), 
+                      type: isImage ? 'image' : 'video', 
+                      url: ev.target?.result as string,
+                      size: f.size
+                    }]);
+                  };
+                  r.readAsDataURL(f);
+                });
+              }
             }} />
           </div>
           <div className="flex items-center gap-2">

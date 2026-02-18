@@ -7,6 +7,7 @@ export interface MediaAttachment {
   url: string;
   thumbnailUrl?: string;
   duration?: number;
+  size?: number; // Size in bytes
 }
 
 export interface DiaryEntry {
@@ -18,6 +19,11 @@ export interface DiaryEntry {
   tags: string[];
   media: MediaAttachment[];
   isFavorite: boolean;
+  location?: {
+    lat: number;
+    lng: number;
+    name?: string;
+  };
 }
 
 export interface Reminder {
@@ -35,4 +41,5 @@ export interface User {
   email: string;
   profilePic: string;
   isSynced: boolean;
+  biometricEnabled?: boolean;
 }

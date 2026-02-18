@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { DiaryEntry, User } from '../types';
+import { DiaryEntry, User } from '../types.ts';
 
 interface HomeProps {
   user: User;

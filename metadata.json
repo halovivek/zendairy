@@ -1,10 +1,23 @@
-
 {
-  "name": "ZenDiary - Your Private Sanctuary",
-  "description": "A high-end, end-to-end encrypted personal diary application featuring text, image, and video memories with AI-powered insights and Google Drive sync simulation.",
+  "name": "ZenDiary",
+  "description": "Secure Personal Diary",
   "requestFramePermissions": [
     "camera",
     "microphone",
     "geolocation"
+  ],
+  "permissions": [
+    {
+      "name": "android.permission.INTERNET",
+      "reason": "Required for Google Drive Sync and Gemini AI"
+    },
+    {
+      "name": "android.permission.CAMERA",
+      "reason": "Required for capturing video memories"
+    },
+    {
+      "name": "android.permission.RECORD_AUDIO",
+      "reason": "Required for voice notes and video audio"
+    }
   ]
 }
